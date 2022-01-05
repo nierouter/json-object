@@ -1,3 +1,4 @@
+require 'json'
 class JsonObject
   attr_reader :source
   def initialize object
@@ -24,15 +25,63 @@ class JsonObject
       raise ArgumentError.new("#{object} is neither Array nor Hash.")
     end
   end
+  def each
+    (@array || @hash.to_a).each { |i|
+      yield i if block_given?
+    }
+  end
   def is_array?; @hash.nil?; end
   def is_hash?; @array.nil?; end
+  def to_s mode=nil
+   if :pretty == mode
+     JSON.pretty_generate(@source)
+   else
+     JSON.generate(@source)
+   end
+  end
   def method_missing indexer, arg=nil
-    if @hash.nil?
-      @array[$1.to_i] = arg if /\A(\d+)=\z/ =~ indexer.to_s && arg
-      @array[indexer]
-    elsif @array.nil?
-      @hash[$1.to_sym] = arg if /\A(.+)=\z/ =~ name.to_s && arg
-      @hash[name]
+    if @array
+      if arg
+        if /\A<<\z/ =~ indexer.to_s
+          @source << arg
+          if arg.is_a?(Array) || arg.is_a?(Hash)
+            @array << JsonObject.new(arg)
+          else
+            @array << arg
+          end
+          @array
+        elsif /\A\+\z/ =~ indexer.to_s
+          if arg.is_a?(JsonObject)
+            JsonObject.new(@source + arg.source)
+          else
+            JsonObject.new(@source + arg)
+          end
+        elsif /\A(\d+)=\z/ =~ indexer.to_s
+          indexer = $1.to_i
+          @source[indexer] = arg
+          if arg.is_a?(Array) || arg.is_a?(Hash)
+            @array[indexer] = JsonObject.new(arg)
+          else
+            @array[indexer] = arg
+          end
+          @array[indexer]
+        end
+      elsif /\A(\d+)=\z/ =~ indexer.to_s
+        @array[indexer]
+      else
+        @array.method(indexer.to_sym).call
+      end
+    elsif @hash
+      if /\A(.+)=\z/ =~ indexer.to_s && arg
+        indexer = $1.to_sym
+        @source[indexer] = arg
+        if arg.is_a?(Array) || arg.is_a?(Hash)
+          @hash[indexer] = JsonObject.new(arg)
+        else
+          @hash[indexer] = arg
+        end
+      end
+      @hash[indexer]
     else
       raise NoMethodError.new("undefined method `#{indexer}' for #{source}", indexer)
     end
